@@ -1,0 +1,42 @@
+DATASET:
+  NAME: 'cifar10'
+  ROOT: './data'
+  IS_NORMALIZE: False
+  SUBSET: null
+
+
+MODEL:
+  HIDDEN_SIZE: [64, 32]
+  ACTIVATION: 'ReLU'
+  USE_BACKDOOR: True
+  NUM_BACKDOORS: 32
+  PREPROCESS: null
+
+  BAIT_SETTING:
+    NUM_TRIALS: 4096
+    APPROACH: 'gaussian'
+    MULTIPLIER: 1.0
+    QUANTILE: 0.9998
+    DETAILS:
+      is_normalize: True
+    SELECTION_DICT:
+      largest_correlation: 0.3
+
+  WEIGHT_SETTING:
+    INTERMEDIATE:
+      multiplier: 1.0
+      noise_threshold: 0.0
+    OUTPUT:
+      approach: 'random_connect'
+      multiplier: 1.0
+
+
+TRAIN:
+  BATCH_SIZE: 64
+  LR: 0.01
+  EPOCHS: 5
+  DEVICE: 'cuda'
+  NUM_WORKERS: 2
+
+
+SAVE_PATH: './weights/mlp_recon_cifar10.pth'
