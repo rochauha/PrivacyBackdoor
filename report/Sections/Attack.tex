@@ -1,0 +1,156 @@
+\section{Backdooring MLPs for White-box Data Stealing}
+\label{sec:attack}
+The goal of the adversary is to have the privacy backdoor capture exactly one finetuning data point. In a federated learning setting, the attacker gets to see gradient updates directly, making it feasible to determine finetuning data points. However, in this setting, the adversary only receives the finetuned model \textit{after} the entire training run is complete. Therefore, the backdoor must be engineered in such a way that the captured inputs: 
+\begin{enumerate}[label=(\roman*), leftmargin=*, itemsep=2pt, topsep=2pt]
+    \item can be extracted from the weights of the finetuned model,
+    \item ``survive'' the entire training run, without being mixed up with other inputs captured in subsequent training steps.
+\end{enumerate}
+
+To accomplish both criteria, the authors propose \textit{data trap}, a backdoor with a ``single-use'' property; once the backdoor has been activated, it will never be active again afterwards.
+
+\subsection{Data Traps}
+We illustrate the approach by backdooring a single linear unit (i.e., one element of a linear layer) and then work our way to a full MLP. Let $\mathbf{w} \in \mathbb{R}^m$ and $b \in \mathbb{R}$ be the weights and bias of the unit. Suppose $\mathbf{x}\in \mathbb{R}^m$ is the input of the unit. We define the unit's activation $h$ as, 
+\begin{equation}
+    h = \mathtt{ReLU}\big(\mathbf{w}^\top\mathbf{x} + b \big)
+\end{equation}
+
+As described in~\cite{fowl2022robbingfeddirectlyobtaining}, the parameters $\mathbf{w}$ and $b$ can be set to ensure that, with high probability, a single input $\mathbf{x}$ in a training batch activates the neuron (i.e. $h > 0$). When the weights update by backpropagating the training loss $\mathcal{L}$, we then get:
+\begin{align}
+    \nabla_\mathbf{w} \mathcal{L} = \frac{\partial \mathcal{L}}{\partial h} \cdot \mathbf{x}, \qquad \nabla_b \mathcal{L} = \frac{\partial \mathcal{L}}{\partial h}.
+\end{align}
+
+\paragraph{Recovering data.} We update the weights and bias of the unit as:
+\begin{align}
+    \mathbf{w}' \gets \mathbf{w} - \eta \cdot \nabla_\mathbf{w} \mathcal{L}, \qquad b' \gets b - \eta \cdot\nabla_b \mathcal{L}.
+\end{align}
+
+Knowledge of the learning rate, the original weights and bias allows us to recover $\nabla_\mathbf{w} \mathcal{L}$ and $\nabla_b \mathcal{L}$. Dividing $\nabla_\mathbf{w} \mathcal{L}$ by $\nabla_b \mathcal{L}$ recovers $\mathbf{x}$.
+
+\paragraph{Preventing subsequent updates.} We now need to ensure that the gradient update for $\mathbf{x}$ closes the backdoor, i.e., prevents further updates. Assume that the backdoor activates on input $\hat{\mathbf{x}}$. The updated backdoor's output on a new input $\mathbf{x}$ is:
+\begin{align}
+    h' &= \mathtt{ReLU}\big(\mathbf{w}'^\top \mathbf{x} + b'\big) \\&= \mathtt{ReLU}\big[(\mathbf{w}^\top \mathbf{x} + b) - \eta \cdot \frac{\partial L}{\partial h} \cdot \left( \hat{\mathbf{x}}^\top \mathbf{x} + 1 \right)\big]
+\end{align}
+
+
+For the $\mathtt{ReLU}$ activation function, a sufficient condition for the backdoor to close (i.e. $h' = 0$ for all $\mathbf{x}$, so all subsequent $\frac{\partial h'}{\partial x} = 0$) is to ensure $\mathbf{w}'^\top\mathbf{x} + b' \leq 0$. This is achieved by:
+
+\begin{enumerate}[label=(\roman*), leftmargin=*, itemsep=2pt, topsep=2pt]
+    \item $\hat{\mathbf{x}}^\top \mathbf{x} + 1 > 0$,
+    \item $\frac{\partial L}{\partial h}$ is sufficiently large and positive.
+\end{enumerate}
+
+The first condition $\hat{\mathbf{x}}^\top \mathbf{x} + 1 > 0$ only depends on the input, and can be algorithmically enforced (e.g., by mapping inputs to $[0,1]^m$, which ensures all dot products are non-negative). We take a closer look at the second condition in the following subsection.
+
+\subsubsection{Ensuring a large, positive gradient.} 
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+    >={Stealth[length=2mm]},
+    node/.style={circle, draw, minimum size=0.9cm, inner sep=0pt, font=\small},
+    every label/.style={font=\small}
+]
+    % Input nodes h and h'
+    \node[node] (h)  at (0, 0)    {$h$};
+    \node[node] (hp) at (2.4, 0)  {$h'$};
+
+    % Logits z_1, z_2, ..., z_C
+    \node[node] (z1) at (5.2,  1.3) {$z_1$};
+    \node[node] (z2) at (5.2,  0)   {$z_2$};
+    \node       (zd) at (5.2, -1.1) {$\vdots$};
+    \node[node] (zC) at (5.2, -2.2) {$z_C$};
+
+    % Softmax outputs s_1, s_2, ..., s_C
+    \node[node] (s1) at (8.6,  1.3) {$s_1$};
+    \node[node] (s2) at (8.6,  0)   {$s_2$};
+    \node       (sd) at (8.6, -1.1) {$\vdots$};
+    \node[node] (sC) at (8.6, -2.2) {$s_C$};
+
+    % Black edge: h -> h'
+    \draw[->] (h) -- node[above, font=\small] {$w_1^{(1)}$} (hp);
+
+    % Red edges: h' -> z_i (classification head)
+    \draw[->, red] (hp) -- node[above, pos=0.55, font=\small] {$w_1^{(2)}$} (z1);
+    \draw[->, red] (hp) -- (z2);
+    \draw[->, red] (hp) -- node[below, pos=0.65, font=\small] {$w_C^{(2)}$} (zC);
+
+    % Softmax arrow from logits block to softmax block
+    \draw[->] ($(z1.east)!0.5!(zC.east) + (0.15,0)$)
+        -- node[above, font=\ttfamily\small] {softmax}
+        ($(s1.west)!0.5!(sC.west) - (0.15,0)$);
+\end{tikzpicture}
+\caption{Illustration of the output of a data trap
+($h = \mathtt{ReLU}\!\left(\mathbf{w}^\top \mathbf{x} + b\right)$)
+connected to the model's output. The weights of the classification head
+(in red) are typically not under the control of the attacker, and
+randomly initialized before finetuning.}
+\label{fig:datatrap}
+\end{figure}
+
+Suppose the new finetuing linear layer is $\mathbf{w}^{(2)} = (w^{(2)}_1,\dots, w^{(2)}_C)$, where $C$ are the number of classes for the finetuning task. It is added in front of the last layer of the pretrained model, as shown in Figure~\ref{fig:datatrap}.  We connect the backdoor output $h$ to a hidden unit $h'$ with weight $w^{(1)}_1$, i.e.,
+\[
+    h' = \mathtt{ReLU}\!\left(w^{(1)}_1h\right).
+\]
+
+The unit $h'$ is then connected via the new linear layer $\mathbf{w}^{(2)}$ to the model's logit layer $\mathbf{z}$. The logits are passed through a softmax before computing the cross-entropy loss (for some target class $T$). Starting from the backdoor, the computation proceeds as follows:
+
+\begin{enumerate}
+    \item Hidden unit activation: $h' = \mathtt{ReLU}\!\left(w^{(1)}_1h\right)$ Note that $h > 0$ by construction.
+    \item Logits: $z_i =w^{(2)}_i h'$ for each class $i \in \{1,\dots,C\}$
+    \item Softmax: $s_i = \exp(z_i)/\sum^C_{j=1}\exp(z_j)$
+    \item Cross-entropy loss: $\mathcal{L} = -\sum^C_{i=1}y_i\log(s_i)$, where $y_i = \begin{cases} 1 & \text{if } i = T, \\ 0 & \text{otherwise.} \end{cases}
+$.
+\end{enumerate}
+
+A standard gradient calculation gives:
+\begin{align}
+    \frac{\partial \mathcal{L}}{\partial h} = \frac{\partial \mathcal{L}}{\partial h'} \cdot \frac{\partial h'}{\partial h} = \left( \sum_{i=1}^{C} (s_i - y_i) \cdot w_i^{(2)} \right) \cdot w_1^{(1)}
+\end{align}
+
+Taking into account the values of $y_i$, this can be expressed as: 
+
+\begin{align}
+\label{eq:gradient}
+    \frac{\partial \mathcal{L}}{\partial h} = \left( \sum_{i=1}^{C} \Big(s_i \cdot w_i^{(2)}\Big) - w_T^{(2)} \right) \cdot w_1^{(1)}
+\end{align}
+
+In order to ensure $\frac{\partial \mathcal{L}}{\partial h}$ is large, we set $w_1^{(1)}$ to be a large value. Now let's analyze the implications of a large $w_1^{(1)}$. Consider $s_i$:
+
+\[
+s_i = \frac{\exp(z_i)}{\sum^C_{j=1}\exp(z_j)} =  \frac{\exp(w^{(2)}_i h')}{\sum^C_{j=1}\exp(w^{(2)}_j h')}
+\]
+
+Factorizing $\exp(w^{(2)}_i h')$, we get:
+\begin{align}
+\label{eqn:neg-diff}
+    s_i = \frac{1}{1 + \sum^C_{j\neq i}\exp\big((w^{(2)}_j - w^{(2)}_i) h'\big)}
+\end{align}
+
+Since $\mathbf{w}^{(2)}$ is randomly initialized, there exists $w^{(2)}_k = \max \{w^{(2)}_1,\dots, w^{(2)}_C\}$ (ignoring ties). However, $h' = \mathtt{ReLU}\!\left(w^{(1)}_1h\right)$ is a large and positive value, since $w^{(1)}_1$ is large and positive, with $h > 0$. Then,
+
+\paragraph{Case 1: $i = k$.} Since $w^{(2)}_k$ is the largest value in $\mathbf{w}^{(2)}$, $(w^{(2)}_j - w^{(2)}_i) < 0$ for all $j\neq i$ in  Eq.~\eqref{eqn:neg-diff}. Then for all $j\neq i$, $\exp\!\big((w^{(2)}_j - w^{(2)}_i)\, h'\big) \approx 0$. Therefore, 
+
+\[
+    \sum^C_{j\neq i}\exp\big((w^{(2)}_j - w^{(2)}_i) h'\big) \approx0
+\]
+
+\paragraph{Case 2: $i \neq k$.} There will be at least one term $(w^{(2)}_j - w^{(2)}_i) > 0$, where $j = k$. Then for that term, $\exp\!\big((w^{(2)}_j - w^{(2)}_i)\, h'\big) \approx \inf$. Therefore,
+
+\[
+    \sum^C_{j\neq i}\exp\big((w^{(2)}_j - w^{(2)}_i) h'\big) \approx \inf
+\]
+
+Substituting these cases in Eq.~\eqref{eqn:neg-diff}, we get:
+\[
+s_i \approx 
+\begin{cases} 1 & \text{if } i = k, \\ 0 & \text{if } i \neq k. \end{cases}
+\]
+
+Using this knowledge in Eq.~\eqref{eq:gradient}, we find that:
+\begin{align}
+\label{eq:reveal}
+    \frac{\partial \mathcal{L}}{\partial h} &= \left( \sum_{i=1}^{C} \Big(s_i \cdot w_i^{(2)}\Big) - w_T^{(2)} \right) \cdot w_1^{(1)}\\
+    & \approx \big(w^{(2)}_k - w_T^{(2)}\big) \cdot w_1^{(1)}
+\end{align}
+
+8Now, whenever $T\neq k$, i.e., the target class does not correspond to the largest weight in the linear layer, $\frac{\partial \mathcal{L}}{\partial h} > 0$. The probability of $T = k$ is $1/C$, (as $k \in \{1, \dots C\}$). Therefore, a sufficiently large $w_1^{(1)}$ also guarantees that $\frac{\partial \mathcal{L}}{\partial h}$ is positive with probability $1 - 1/C$. This closes the backdoor and prevents subsequent updates from corrupting the captured inputs.

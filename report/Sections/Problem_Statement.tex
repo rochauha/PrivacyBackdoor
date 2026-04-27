@@ -1,0 +1,61 @@
+\section{Problem Statement}
+\label{sec:problem}
+
+This section formalizes the setting in which privacy backdoors operate. We describe the fine-tuning pipeline and fix notation (Section~\ref{sec:setup}), specify the adversary's capabilities and the victim's training procedure (Section~\ref{sec:threat}), and state the adversary's formal objectives (Section~\ref{sec:goal}).
+
+\subsection{Setup}
+\label{sec:setup}
+
+We consider the standard fine-tuning pipeline for supervised classification. A model provider publishes a pretrained backbone $\theta_0^{\mathrm{bb}} \in \mathbb{R}^{d_{\mathrm{bb}}}$. A victim downloads these weights, appends a freshly initialized classification head $\theta_0^{\mathrm{head}} \in \mathbb{R}^{d_{\mathrm{head}}}$ drawn from a standard initializer, and forms the initial parameter vector $\theta_0 \coloneqq (\theta_0^{\mathrm{bb}}, \theta_0^{\mathrm{head}}) \in \mathbb{R}^d$ with $d = d_{\mathrm{bb}} + d_{\mathrm{head}}$. The victim then fine-tunes on a private dataset $\dset = \{(x_i, y_i)\}_{i=1}^{n} \subset \mathcal{X} \times \mathcal{Y}$, where $\mathcal{X}$ denotes the input space and $\mathcal{Y} = \{1, \ldots, C\}$ is the label space of $C$-way classification task. Fine-tuning is performed by a training algorithm $\A$, producing the fine-tuned weights $\theta_T = \A(\theta_0, \dset)$. The adversary in our setting is the model provider itself: having controlled the backbone coordinates of $\theta_0$, it subsequently obtains access to $\theta_T$.
+
+\subsection{Threat Model}
+\label{sec:threat}
+
+\paragraph{Adversary.} The adversary fully controls the pretrained backbone $\theta_0^{\mathrm{bb}}$, subject only to a utility constraint: the fine-tuned model must remain sufficiently accurate on the downstream task that the victim accepts and deploys it. The adversary does not participate in the fine-tuning process and observes no intermediate state of the run, i.e., no per-step gradients. Its only interaction with the fine-tuning pipeline is through the final model $\theta_T$ produced by the victim.
+
+
+\paragraph{Victim.} The victim performs standard supervised fine-tuning on the private dataset $\dset$ using a fixed training algorithm $\A$. We consider two instantiations of $\A$, corresponding to the non-private and differentially private regimes:
+
+\begin{itemize}[leftmargin=*, itemsep=2pt, topsep=2pt]
+    \item \emph{Full fine-tuning with SGD.} All coordinates of $\theta_0$ are updated via mini-batch stochastic gradient descent for $T$ steps. This is the setting of the reconstruction attack of Section~\ref{sec:attack}.
+    \item \emph{Top-$k$ fine-tuning with DP-SGD.} The bottom portion of the backbone is frozen, and only the top $k$ layers together with the classification head are updated, using the DP-SGD algorithm of ~\citet{abadi2016deep}. This is the standard setup for differentially private transfer learning \citep{tramer2020differentially}, and is the setting under which the tightness of consequence of Section~\ref{sec:privacy} is established.
+\end{itemize}
+
+In both regimes, fine-tuning is carried out end-to-end by the victim, without any adversarial participation.
+
+\paragraph{Access to the fine-tuned model.}
+We restrict attention to the \emph{white-box} setting, in which the adversary reads the fine-tuned parameter vector $\theta_T$ directly. This models a fine-tuned model that is redistributed internally or externally, or one whose weights are otherwise recovered by the adversary after deployment. We note in passing that the attack admits a black-box extension in which the adversary only queries the  deployed model on inputs of its choice; the black-box setting is not pursued in this report.
+
+\subsection{Objective}
+\label{sec:goal}
+
+The adversary's objective has two components: a privacy compromise, formalized as the ability to reconstruct individual fine-tuning examples from the released model; and a utility constraint, formalized as a bound on the degradation of the downstream task performance relative to a benign pretrained initialization.
+
+For the reconstruction goal, we assume the input space $\mathcal{X}$ is equipped with a dissimilarity measure $\rho: \mathcal{X} \times \mathcal{X} \to \mathbb{R}_{\geq 0}$ (for instance, the Euclidean distance on normalized images, or a token-level edit distance on text). Let $\mathcal{P}$ denote a distribution over datasets of size $n$ in $\mathcal{X} \times \mathcal{Y}$, from which the victim draws the private dataset $\dset$.
+
+\begin{definition}[Reconstruction]
+    \label{def:recon}
+    A pair $(\theta_0, \mathrm{Ext})$, consisting of an initialization $\theta_0 \in \mathbb{R}^d$ and a (possibly randomized) extraction algorithm $\mathrm{Ext}: \mathbb{R}^d \to \mathcal{X}^{\ast}$, achieves \emph{$(k, \tau, \beta)$-reconstruction} under the training algorithm $\A$ and dataset distribution $\mathcal{P}$ if 
+    \[
+      \Pr\!\left[\,\left|\left\{\, (x, y) \in \dset \;:\; \min_{\hat{x} \in \mathrm{Ext}(\theta_T)} \rho(x, \hat{x}) \,\leq\, \tau \,\right\}\right| \,\geq\, k \,\right] \;\geq\; 1 - \beta,
+    \]
+    where $\dset \sim \mathcal{P}$, $\theta_T = \A(\theta_0, \dset)$, and the probability is taken over the randomness of $\dset$,  $\A$, and $\mathrm{Ext}$.
+\end{definition}
+
+
+\begin{definition} [Utility preservation]
+\label{def:util}
+    Let $\theta_0^{\mathrm{ref}}$ be a benign reference initialization (with a clean pretrained backbone). For a parameter vector $\theta \in \mathbb{R}^d$ and a dataset $D' \subset \mathcal{X} \times \mathcal{Y}$, let 
+    \[
+        \mathrm{Acc}(\theta; \dset') \;\coloneqq\; \frac{1}{|\dset'|} \sum_{(x, y) \,\in\, \dset'} \mathbbm{1}\!\left[\, f_\theta(x) = y \,\right]
+    \]
+    denote the empirical accuracy of the classifier $f_\theta: \mathcal{X} \to \mathcal{Y}$ on $D'$. initialization $\theta_0$ is \emph{$\gamma$-utility-preserving relative to $\theta_0^{\mathrm{ref}}$} under the training algorithm $\A$ and distribution $\mathcal{P}$ if 
+    \[
+      \E\!\left[\,\mathrm{Acc}\!\left(\A(\theta_0^{\mathrm{ref}}, \dset); \dset \right) \,-\, \mathrm{Acc}\!\Big(\A(\theta_0, \dset); \dset\Big)\right] \;\leq\; \gamma,
+    \]
+    where the expectation is taken over the randomness of $D$ and $\A$.
+\end{definition}
+
+A successful privacy backdoor is an initialization $\theta_0$ paired with an extraction algorithm $\mathrm{Ext}$ that meets both objectives simultaneously: the pair achieves $(k, \tau, \beta)$-reconstruction in the sense of Definition~\ref{def:recon} for small $\tau$ and $\beta$, while $\theta_0$ is $\gamma$-utility-preserving in the sense of Definition~\ref{def:util} for small $\gamma$.
+
+\paragraph{A consequence for DP-SGD.} Definitions~\ref{def:recon} and~\ref{def:util} make no reference to differential privacy. When $\A$ is DP-SGD, however, a successful privacy backdoor yields, as a byproduct, an analytic lower bound on the realized privacy parameter $\varepsilon$. This lower bound is a consequence of the reconstruction objective, and we defer its statement and proof to Section~\ref{sec:privacy}.

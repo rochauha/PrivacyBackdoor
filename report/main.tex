@@ -1,0 +1,85 @@
+\documentclass[11pt]{article}
+
+%----------------------------------------------------------------------
+% Packages
+%----------------------------------------------------------------------
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{mathtools}
+\usepackage{bm}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage[round,authoryear]{natbib}
+\usepackage{tikz}
+\usetikzlibrary{positioning, arrows.meta, calc}
+\usepackage{bbm}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  citecolor=blue!50!black,
+  urlcolor=blue!60!black
+}
+
+%----------------------------------------------------------------------
+% Theorem-like environments
+%----------------------------------------------------------------------
+\newtheorem{definition}{Definition}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem*{remark}{Remark}
+
+%----------------------------------------------------------------------
+% Macros
+%----------------------------------------------------------------------
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\renewcommand{\Pr}{\mathbb{P}}
+\newcommand{\N}{\mathcal{N}}
+\newcommand{\D}{\mathcal{D}}
+\newcommand{\A}{\mathcal{A}}
+\newcommand{\M}{\mathcal{M}}
+\newcommand{\I}{\mathcal{I}}
+\newcommand{\eps}{\varepsilon}
+\newcommand{\sigm}{\sigma}
+\newcommand{\dset}{D}
+\newcommand{\dsetp}{D'}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\abs}[1]{\left\lvert #1 \right\rvert}
+\newcommand{\inner}[2]{\langle #1, #2 \rangle}
+\newcommand{\clip}{\mathrm{clip}}
+\newcommand{\sign}{\mathrm{sign}}
+\newcommand{\relu}{\mathrm{ReLU}}
+\newcommand{\softmax}{\mathrm{softmax}}
+\newcommand{\LN}{\mathrm{LN}}
+\newcommand{\divyam}[1]{\textcolor{red}{Divyam: }\textcolor{red}{#1}}
+
+\title{Privacy Backdoors and the Tightness of DP-SGD}
+\author{Divyam Anshumaan, Ronak Chauhan, Sarthak Choudhary
+}
+\date{\today}
+
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Abstract goes here ....
+\end{abstract}
+
+%----------------------------------------------------------------------
+\input{Sections/Introduction}
+\input{Sections/Problem_Statement}
+\input{Sections/Attack}
+\input{Sections/Privacy_Analysis}
+%----------------------------------------------------------------------
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

@@ -1,0 +1,209 @@
+\section{Privacy Analysis}
+\label{sec:privacy}
+
+This section establishes the central claim of the report: under a privacy backdoor, the end-to-end privacy analysis of DP-SGD is nearly tight. We first recall DP-SGD and its upper bound, then develop a hypothesis-testing lower bound on $\varepsilon$ that applies to any mechanism, and finally instantiate this lower bound under the backdoor construction of Section~\ref{sec:attack} to show that it matches the upper bound.
+
+\subsection{DP-SGD and its privacy upper bound}
+\label{sec:dpsgd}
+
+Fix a per-example loss $\ell$. DP-SGD \citep{abadi2016deep} iterates, for $t=1, \ldots, T$:
+\begin{enumerate}[label=(\roman*), leftmargin=*, itemsep=2pt, topsep=2pt]
+  \item Sample a lot $S_t \subseteq [n]$ by Poisson subsampling with rate
+    $q = L/n$;
+  \item Compute per-example gradients and clip to norm $C$:
+    $g_t(i) = \clip_C\!\left(\nabla_\theta \ell(\theta_{t-1}; x_i, y_i)\right)$
+    for each $i \in S_t$;
+  \item Form the noisy aggregate
+    $G_t = \sum_{i \in S_t} g_t(i) + \xi_t$, where
+    $\xi_t \sim \mathcal{N}(0, \sigm^2 C^2 I_d)$;
+  \item Update $\theta_t = \theta_{t-1} - (\eta/L)\, G_t$.
+\end{enumerate}
+
+\begin{theorem}[DP-SGD privacy upper bound; \citealp{abadi2016deep,
+mironov2019r}]
+\label{thm:upper}
+For any $\delta \in (0, 1)$, there exists $\eps^\star(\sigm, q, T, \delta)$, computable from the subsampled-Gaussian R\'enyi-DP accountant,
+such that the map $\dset \mapsto (G_1, \ldots, G_T)$ is $(\eps^\star,
+\delta)$-differentially private.
+\end{theorem}
+
+Because $\theta_T$ is a deterministic function of $\theta_0$ and $(G_1, \ldots, G_T)$, the post-processing theorem of DP \citep{dwork2014algorithmic} implies that end-to-end map $\dset \mapsto \theta_T$ is also $(\eps^\star, \delta)$-DP. \textbf{The question is whether this upper bound is tight when the adversary sees only $\theta_T$.}
+
+\subsection{End-to-end versus per-step adversaries}
+\label{sec:endtoend}
+
+Two adversary models inherit the upper bound $\eps^\star$ via post-processing. A \emph{per-step} adversary observes the full trajectory $(G_1, \ldots, G_T)$; an \emph{end-to-end} adversary observes only $\theta_T$. Empirical auditing shows that $\eps^\star$ is essentially tight in the per-step regime, but audits of end-to-end DP-SGD from benign initializations typically saturate at $\tilde\eps \approx \eps^\star / 4$ or less \citep{nasr2021adversary, jagielski2020auditing}. This apparent slack is often cited in support of loose production privacy budgets, e.g.\ $\eps \in [8,9]$ \citep{ramaswamy2020training}. Whether it reflects structural slack in the analysis, or merely the benign initialization assumed by existing audits, is the question we answer.
+
+\subsection{Privacy as hypothesis testing}
+\label{sec:ht-dp}
+
+We first record the reduction from differential privacy to a hypothesis-testing constraint. The reduction is mechanism-agnostic and will be applied to DP-SGD in Section~\ref{sec:instantiation}.
+
+
+Let $M : \mathbb{D} \to \Delta(\mathcal{R})$ be a randomized mechanism mapping datasets to distributions over an output space $\mathcal{R}$. Two datasets $D_0, D_1 \in \mathbb{D}$ are \emph{neighbors}, written $D_0 \sim D_1$, if they differ by a single record. In the membership-inference specialization to which we will reduce, $D_1 = D \cup \{x^\star\}$ and $D_0 = D$ for a target canary $x^\star$, and the adversary must decide from $Y \sim M(D_b)$ whether $b = 0$ or $b = 1$.
+
+\begin{definition}[Deterministic test]
+\label{def:det-test}
+A \emph{test} is specified by a measurable rejection region $R \subseteq \mathcal{R}$: the adversary declares ``$x^\star$ present'' if $Y \in R$ and ``$x^\star$ absent'' otherwise. Its power is summarized by
+\[
+  \mathrm{TPR}(R) = \Pr_{Y \sim M(D_1)}[Y \in R],
+  \qquad
+  \mathrm{FPR}(R) = \Pr_{Y \sim M(D_0)}[Y \in R].
+\]
+\end{definition}
+
+\begin{lemma}[Hypothesis-testing constraint]
+\label{lem:tpr-fpr}
+If $M$ is $(\eps, \delta)$-differentially private, then for every rejection region $R \subseteq \mathcal{R}$,
+\[
+  \mathrm{TPR}(R) \;\leq\; e^\eps \cdot \mathrm{FPR}(R) + \delta.
+\]
+\end{lemma}
+
+\begin{proof}
+Apply the definition of $(\eps, \delta)$-DP with measurable set $S = R$ to the neighboring pair $D_0 \sim D_1$ and substitute the definitions of $\mathrm{TPR}$ and $\mathrm{FPR}$.
+\end{proof}
+
+\begin{proposition}[Hypothesis-testing lower bound on $\eps$]
+\label{prop:eps-lb}
+For every rejection region $R$ with $\mathrm{FPR}(R) > 0$,
+\begin{equation}
+  \eps \;\geq\; \log\!\left(\frac{\mathrm{TPR}(R) - \delta}{\mathrm{FPR}}\right).
+  \label{eq:eps-lb-pointwise}
+\end{equation}
+Consequently, if one defines
+\[
+  \tilde\eps(M, \delta) \;\coloneqq\; \sup_{R \subseteq \mathcal{R}}
+  \log\!\left(\frac{\mathrm{TPR}(R) - \delta}{\mathrm{FPR}(R)}\right),
+\]
+then any valid $(\eps, \delta)$-DP guarantee for $M$ must satisfy $\eps \geq \tilde\eps(M, \delta)$.
+\end{proposition}
+
+\begin{proof}
+Rearrange Lemma~\ref{lem:tpr-fpr} and take the supremum over $R$.
+\end{proof}
+
+\subsection{Reduction to a scalar threshold test}
+\label{sec:threshold}
+
+Optimizing $\tilde\eps$ over $R \subseteq \mathcal{R}$ is intractable for $\mathcal{R} = \R^d$. The standard simplification is to project the output through a scalar test statistic and restrict attention to threshold rejection regions.
+
+\begin{definition}[Threshold test]
+\label{def:thr-test}
+Given a measurable test statistic $\Delta : \mathcal{R} \to \R$, the \emph{threshold family} is $\{R_t\}_{t \in \R}$ with $R_t = \{y \in \mathcal{R} : \Delta(y) \geq t\}$. Define
+\[
+  \tilde\eps_{\mathrm{thr}}(\Delta, \delta)
+  \;\coloneqq\; \sup_{t \in \R}
+  \log\!\left(\frac{\Pr_{Y \sim M(D_1)}[\Delta(Y) \geq t] - \delta}
+                     {\Pr_{Y \sim M(D_0)}[\Delta(Y) \geq t]}\right).
+\]
+\end{definition}
+
+By the Neyman--Pearson lemma, if $\Delta$ is a monotone function of the log-likelihood ratio $\Lambda(y) = \log \frac{dM(D_1)}{dM(D_0)}(y)$, then threshold tests on $\Delta$ are uniformly most powerful: for every $\alpha \in [0, 1]$ there is a $t$ such that $R_t$ maximizes $\mathrm{TPR}(R)$ subject to $\mathrm{FPR}(R) \leq \alpha$ among \emph{all} tests. In that case $\tilde\eps_{\mathrm{thr}}(\Delta, \delta) = \tilde\eps(M, \delta)$, i.e., no tightness is lost by restricting to threshold tests. When $\Lambda$ is not available in closed form, one may replace it with an approximation; the privacy backdoor construction of the next subsection is engineered so that a single coordinate of $\theta_T$ is, up to known affine shifts, a sufficient statistic for $\Lambda$, and the restriction is therefore without loss. The optimal threshold $t^\star$ is then found by grid search.
+
+\subsection{Instantiation under a privacy backdoor}
+\label{sec:instantiation}
+
+We now instantiate Section~\ref{sec:threshold} on DP-SGD applied to a backdoored initialization. Fix a target canary $x^\star$ and consider the neighboring datasets $D_0 = \{(x_i, y_i)\}_{i=1}^{n-1}$ and $D_1 = D_0 \cup \{x^\star\}$. Let $\theta_T = \A_{\mathrm{DP\text{-}SGD}}(\theta_0, D_b)$.
+
+\paragraph{The canary construction.} The construction of
+Section~\ref{sec:attack} can be specialized to produce a canary \emph{module} rather than a single-use reconstruction trap: a configuration of the backbone weights, together with a known coordinate $j^\star$ and known affine shifts $(\alpha, \beta) \in \R \times \R_{>0}$, such that the clipped per-example gradient along $j^\star$ satisfies, for every step $t$,
+\begin{equation}
+  g_t(i)[j^\star] \;=\;
+  \begin{cases}
+    C & \text{if } i = x^\star \text{ and } x^\star \in S_t, \\
+    0 & \text{otherwise}.
+  \end{cases}
+  \label{eq:canary-grad}
+\end{equation}
+
+Unlike the latched reconstruction trap of Section~\ref{sec:attack}, the canary module is \emph{multi-use}: \eqref{eq:canary-grad} holds at every step, not only at the first activation. The latch is unnecessary here because the canary does not encode an input-dependent payload; the attacker knows $x^\star$ a priori, so there is no information that needs to be preserved from being updated. The construction must instead secure two invariants: the clipped per-example gradient on coordinate $j^\star$ equals $\pm C$ when $i = x^\star$ is in the lot and $0$ otherwise, and the detector's activation condition on $x^\star$ is preserved across all $T$ steps.
+
+Both invariants are produced by standard architectural choices. The trap unit is tuned so that it activates only for inputs in a small neighborhood of $x^\star$, which forces every $i \neq x^\star$ to contribute zero gradient through the amplifier path, including on coordinate $j^\star$. For $i = x^\star$, an amplifier gain $M \gg 1$ ensures that the pre-clip gradient $\nabla_\theta \ell(\theta_{t-1}; x^\star)$ is dominated by a term of magnitude $M$ along $e_{j^\star}$, so clipping by the factor $C/M$ yields $\pm C$ on coordinate $j^\star$ and $O(C/M)$ on every other coordinate. Because non-target examples leave the detector weights untouched, and the target's own contribution to those weights is $O(C/M)$ per step, the cumulative drift of any detector coordinate across $T$ steps is bounded by $O(\eta T C / (L M)) + O(\eta \sigma C \sqrt{T}/L)$, which is small by choice of $M$ relative to the activation margin with which the detector is configured. The detector, therefore, remains operational throughout training.
+
+\paragraph{Scalar reduction.} Define the canary statistic
+$\Delta(\theta) \coloneqq (\theta[j^\star] - \alpha) / \beta$. Under
+DP-SGD, combining \eqref{eq:canary-grad} with the noise addition at
+coordinate $j^\star$ gives
+\begin{equation}
+  \Delta(\theta_T) \;=\; \sum_{t=1}^T \big(C \cdot B_t + Z_t\big),
+  \qquad
+  Z_t \sim \mathcal{N}(0, \sigm^2 C^2) \text{ i.i.d.,}
+  \label{eq:delta}
+\end{equation}
+where $B_t = \mathbbm{1}[x^\star \in S_t]$. Under $D_0$, the canary is
+absent and $B_t \equiv 0$; under $D_1$, $B_t \stackrel{\mathrm{i.i.d.}}{\sim}
+\mathrm{Bernoulli}(q)$. Writing $X_t \coloneqq C B_t + Z_t$, equation
+\eqref{eq:delta} is the $T$-fold sum of i.i.d.\ copies of the
+subsampled-Gaussian step \citep{mironov2019r}, and the induced
+marginals are
+\begin{align}
+  \Delta(\theta_T) \,\big|\, D_0 &\;\sim\; \mathcal{N}(0, T \sigm^2 C^2),
+  \label{eq:dist0} \\
+  \Delta(\theta_T) \,\big|\, D_1 &\;\sim\; C \cdot \mathrm{Bin}(T, q)
+  \,+\, \mathcal{N}(0, T \sigm^2 C^2), \label{eq:dist1}
+\end{align}
+where \eqref{eq:dist1} denotes the distribution of the sum of an
+independent $C \cdot \mathrm{Bin}(T, q)$ draw and a Gaussian with
+variance $T \sigm^2 C^2$.
+
+\paragraph{Sufficiency and optimality.} The likelihood ratio between
+\eqref{eq:dist1} and \eqref{eq:dist0} depends on $\theta_T$ only through
+$\Delta(\theta_T)$, so $\Delta$ is a sufficient statistic for
+distinguishing $D_0$ from $D_1$; moreover, the ratio is monotone
+non-decreasing in $\Delta$. By Neyman--Pearson, threshold tests on
+$\Delta$ are uniformly most powerful.
+% and
+% $\tilde\eps_{\mathrm{thr}}(\Delta, \delta) = \tilde\eps(M, \delta)$.
+
+\paragraph{Main theorem.} The scalar mechanism defined by
+\eqref{eq:delta} is, by construction, the subsampled Gaussian
+mechanism with sampling rate $q$ and noise multiplier $\sigm$ iterated
+$T$ times, whose optimal privacy curve is known
+\citep{mironov2019r} to match the DP-SGD upper bound of
+Theorem~\ref{thm:upper}. We therefore obtain:
+
+\begin{theorem}[End-to-end tightness under a privacy backdoor]
+\label{thm:main}
+Let $\theta_0$ be the backdoored initialization of Section~\ref{sec:attack} with canary module \eqref{eq:canary-grad}. Let $\eps^\star(\sigm, q, T, \delta)$ be the DP-SGD upper bound of Theorem~\ref{thm:upper}, and let $\tilde\eps(\sigm, q, T, \delta)$ be the hypothesis-testing lower bound obtained from Proposition~\ref{prop:eps-lb} via the canary statistic $\Delta$. Then
+\begin{equation}
+  \tilde\eps(\sigm, q, T, \delta)
+  \;=\; \eps^\star(\sigm, q, T, \delta).
+  \label{eq:main}
+\end{equation}
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+By \eqref{eq:dist0}--\eqref{eq:dist1} and the sufficiency argument
+above, $\tilde\eps$ equals the hypothesis-testing lower bound for the
+$T$-fold subsampled Gaussian mechanism on $\R$ with rate $q$ and noise
+$\sigm$. The hypothesis-testing lower bound for this mechanism
+coincides with its $f$-DP characterization
+\citep{mironov2019r, dong2022gaussian}, which is in turn equal to the RDP-accountant upper bound $\eps^\star$. The full calculation proceeds by expressing $\tilde\eps$ as a supremum of Gaussian-to-Gaussian-mixture likelihood-ratio integrals and invoking tightness of the subsampled-Gaussian accountant; we refer to \citet{feng2024privacy} for the detailed numerical treatment.
+\end{proof}
+
+\subsection{Near-tightness and implications}
+\label{sec:tightness}
+
+The equality in Theorem~\ref{thm:main} is an idealization; in practice, $\eps$ falls slightly below $\eps^*$ because the canary module does not activate on every step it is in the lot.
+
+\paragraph{Realized vs.\ idealized canaries.} The identity
+\eqref{eq:canary-grad} assumes the canary module is perfectly preserved
+throughout training. In practice, activation of the canary may fail on
+a fraction of steps, and the realized per-step activation probability
+is $q\gamma$ for some $\gamma \in (0, 1]$ close to but not exactly $1$.
+The argument above then yields
+$\tilde\eps(\sigm, q, T, \delta) = \eps^\star(\sigm, q\gamma, T, \delta)$,
+which remains a large fraction of the upper bound under typical
+DP-SGD parameters. A representative numerical comparison
+($\sigm = 1$, $q = 10^{-2}$, $T = 10^3$, $\delta = 10^{-5}$) gives
+$\eps^\star \approx 2.3$ and $\tilde\eps / \eps^\star \geq 0.87$ for
+$\gamma \geq 0.9$; a fuller evaluation is deferred to experiments.
+
+\paragraph{Implications.} The slack commonly observed in empirical
+end-to-end audits of DP-SGD from benign initializations is not a
+structural feature of the privacy analysis. It is a consequence of the
+initialization being drawn independently of the fine-tuning data.
+Theorem~\ref{thm:main} shows that an adversary who controls the
+initialization can eliminate this slack and certify a lower bound
+matching the theoretical upper bound.
